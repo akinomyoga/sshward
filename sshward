@@ -1,0 +1,121 @@
+#!/bin/bash
+
+rhost=tkynt2
+rport=50522
+lport=22
+htime=300
+
+#
+# tkynt2 port table
+#   tkynt2:50022  ->+ tkyntn:22
+#   tkynt2:50122  ->+ laguerre:20002 (for test)
+# * tkynt2:50222 +->  nuclth01:22
+# * tkynt2:50322  ->+ laguerre:20002
+# * tkynt2:50422  ->+ yogo@sophia:22
+#
+# ftp-a.rcnp port table
+# * ftp-a.rcnp:50322  ->+ laguerre:20002
+# * ftp-a.rcnp:50422  ->+ yogo:22
+#
+# USAGE:
+#
+# laguerre <- rcnp
+#   sshdfwd.20130310 -l20002 ftp-a.rcnp:50322 -Stcsh &>/dev/null &
+# yogo <- rcnp
+#   sshdfwd.20130310 ftp-a.rcnp:50422 -Stcsh &>/dev/null &
+#
+
+shell=bash
+fwddir=$HOME/bin/sshdfwd.d
+
+ssh_options=()
+
+while (($#)); do
+  declare arg="$1"
+  shift
+  case "$arg" in
+  (-i)   ssh_options+=(-i "$1"); shift ;;
+  (-i*)  ssh_options+=(-i "${arg:2}") ;;
+  (-l?*) lport="${arg:2}" ;;
+  (-S?*) shell="${arg:2}" ;;
+  (-H?*)
+    # heart beat time
+    htime="${arg:2}" ;;
+  (*:*)
+    rhost="${arg%:*}"
+    rport="${arg##*:}"
+    ;;
+  esac
+done
+
+function fileage {
+  local now="$(date +%s)"
+  local mtime="$(ls -ld --time-style=+%s "$1" 2>/dev/null | awk '{print $6;exit}')"
+  echo $((now-mtime))
+}
+
+# http://www.debianadmin.com/howto-use-ssh-local-and-remote-port-forwarding.html
+#
+# option -n : 何もしない
+# option -R : remote port forwarding
+# option -L : local port forwarding
+# option -g : local port fowarding で他のマシンからも forward 元ポートを見える様にする場合に必要
+#
+# sshd_config GatewayPorts について
+#   remote port forwarding の際に forward 元ポートが他のマシンからも見える様にする為には、
+#   forward 元の /etc/ssh/sshd_config に GatewayPorts clientspecified または GatewayPorts yes を指定する必要がある。
+#   clientspecified は -R bind_address:rport:localhost:lport の bind_address に指定された内容を使うことを表す。
+#   GatewayPorts yes は全ての interface に bind する事を表す。
+#
+declare forward_options=(-nR "*:$rport:localhost:$lport")
+
+(
+  function sshdfwd/start-heartbeat {
+    local script='$HOME/.mwg/share/sshdfwd/heartbeat.v0.sh'
+    local ssh_out="$(LANG=C ssh "${ssh_options[@]}" "${forward_options[@]}" "$rhost" "\"$script\" $htime --from=$HOSTNAME" 2>&1; ret=$?; echo exit=$ret)"
+    local ret="$?"
+    if [[ $ssh_out =~ exit=127 || $ssh_out =~ "/heartbeat.v0.sh: Command not found" ]]; then
+      sshdfwd/log "installing scripts to remote host ($script)."
+      # 向こうにスクリプトが存在しなかった時に、インストールする
+      ssh "${ssh_options[@]}" "$rhost" "mkdir -p \"${script%/*}\" && cat >> \"$script\" && chmod +x \"$script\"" <<'EOF' && \
+        ssh "${ssh_options[@]}"  "${forward_options[@]}" "$rhost" "\"$script\" $htime --from=$HOSTNAME"
+#!/bin/sh
+
+# kill other
+ps ax -o ppid,pid,user,command \
+  | awk '$1=="1"&&$3=="'"$USER"'"&&$0~/\/\.mwg\/share\/sshdfwd\/[h]eartbeat.v[0-9]+.sh\y|\ybash -c while :; do date; sleep [0-9]+; done$/{print "kill",$2;}' \
+  | sh
+
+htime="$1"
+
+while :; do
+  date
+  sleep $htime
+done
+EOF
+      return
+    else
+      test "$ret" -ne 0 && echo "ret=$ret"
+      return "$ret"
+    fi
+  }
+
+  function sshdfwd/log {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >> "$HOME/bin/sshd_forward.log"
+  }
+
+  nfail=0
+  ftouch="$fwddir/connect.touch"
+  while :; do
+    touch "$ftouch"
+    sshdfwd/log "try sshfwd localhost:$lport <- $rhost:$rport"
+    sshdfwd/start-heartbeat >> $fwddir/sshdfwd.err 2>&1
+
+    jizoku=$(fileage "$ftouch")
+    sshdfwd/log "failed jizoku=$jizoku"
+    ((nfail=jizoku<300?nfail+1:0))
+
+    sleep $((300+(nfail<30?nfail:30)*600))
+  done &>/dev/null
+) &>/dev/null </dev/null &
+disown
