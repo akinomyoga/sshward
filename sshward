@@ -6,6 +6,18 @@ function mkd {
     shift
   done
 }
+function mkdf {
+  while (($#)); do
+    [[ $1 = */* ]] && mkd "${1%/*}"
+    shift
+  done
+}
+
+function fileage {
+  local now="$(date +%s)"
+  local mtime="$(ls -ld --time-style=+%s "$1" 2>/dev/null | awk '{print $6;exit}')"
+  echo $((now-mtime))
+}
 
 #
 # tkynt2 port table
@@ -36,7 +48,7 @@ htime=300
 fTitle=
 oTitle=
 oHost=
-
+oPidFile=
 fServer=
 
 # http://www.debianadmin.com/howto-use-ssh-local-and-remote-port-forwarding.html
@@ -126,6 +138,7 @@ function read_arguments {
     (-Wf,*) IFS=, eval 'forward_options+=(${arg%-Ws,})' ;;
     (-Ws,*) IFS=, eval 'ssh_options+=(${arg%-Ws,})' ;;
     (--server) fServer=1 ;;
+    (--pidfile=*) oPidFile=${arg#*=} ;;
     (--help) read_arguments/option:help ;;
     (--title=*)
       fTitle=1 oTitle=${arg#*=} ;;
@@ -143,6 +156,8 @@ function read_arguments {
       [[ $lhost != *:* ]] && lhost=*:$lhost
       forward_options+=(-L "$lhost:$rhost")
       [[ $fTitle ]] || oTitle+=" L($arg)" ;;
+    (-*)
+      read_arguments/error 'unrecognized option.' ;;
     (?*)
       if [[ ! $oHost ]]; then
         oHost=$arg
@@ -158,17 +173,13 @@ function read_arguments {
 read_arguments "$@"
 
 if [[ ! $oHost ]]; then
-  local pos='command line'
+  declare pos='command line'
   read_arguments/error 'no host is specified.'
 fi
 
 [[ $fError ]] && exit 1
 
-function fileage {
-  local now="$(date +%s)"
-  local mtime="$(ls -ld --time-style=+%s "$1" 2>/dev/null | awk '{print $6;exit}')"
-  echo $((now-mtime))
-}
+#------------------------------------------------------------------------------
 
 declare RemoteScript='$prefix/heartbeat.v0.sh'
 declare sshpid= fstdout=
@@ -188,10 +199,19 @@ function sshward/ssh {
   return "$ret"
 }
 
-function sshward/TRAPTERM {
+function sshward/terminate {
   [[ $sshpid ]] && kill "$sshpid"
   [[ -f $fstdout ]] && rm -f "$fstdout"
   sshpid= fstdout=
+
+  if [[ $oPidFile ]]; then
+    rm -f "$oPidFile"
+    oPidFile=
+  fi
+}
+
+function sshward/TRAPTERM {
+  sshward/terminate
   exit 143
 }
 
@@ -231,6 +251,10 @@ function sshward/log {
 
 function sshward/loop {
   trap -- sshward/TRAPTERM TERM INT QUIT
+  if [[ $oPidFile ]]; then
+    mkdf "$oPidFile"
+    echo $BASHPID > "$oPidFile"
+  fi
 
   nfail=0
   ftouch="$prefix"/tmp/sshward.$$.touch
