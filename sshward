@@ -19,13 +19,6 @@ function mkd {
 # * ftp-a.rcnp:50322  ->+ laguerre:20002
 # * ftp-a.rcnp:50422  ->+ yogo:22
 #
-# USAGE:
-#
-# laguerre <- rcnp
-#   sshward.20130310 -l20002 ftp-a.rcnp:50322 -Stcsh &>/dev/null &
-# yogo <- rcnp
-#   sshward.20130310 ftp-a.rcnp:50422 -Stcsh &>/dev/null &
-#
 
 shell=bash
 prefix=$HOME/.mwg/share/sshward
@@ -43,6 +36,8 @@ htime=300
 fTitle=
 oTitle=
 oHost=
+
+fServer=
 
 # http://www.debianadmin.com/howto-use-ssh-local-and-remote-port-forwarding.html
 #
@@ -77,14 +72,14 @@ function read_arguments/option:H {
 
 function read_arguments/option:help {
   local tvar='[36m' t0='[m'
-  local tpat='[91m'
+  local tpat='[91m' bold='[1m'
   local OPTION="${tvar}OPTION${t0}"
   local FORWARD="${tvar}FORWARD${t0}"
   local svar="${tvar}@${t0}"
   ifold -i -s -w 80 <<EOF
-usage: ${0##*/} ${tpat}[${t0}$OPTION${tpat}...]${t0} ${tpat}[${t0}$FORWARD${tpat}...]${t0} ${tvar}HOST${t0}
+usage: ${0##*/} ${tpat}[${t0}$OPTION${tpat}...]${t0} ${tvar}HOST${t0} ${tpat}[${t0}$FORWARD${tpat}...]${t0}
 
-$OPTION
+${bold}$OPTION
 
   --help
   -i ${svar/@/IdentityFile}
@@ -99,13 +94,21 @@ The options with \`-Wf' will be used to make port fowardings. \
 While the \`-Wf' options are used only on making port forwardings, \
 the \`-Ws' options are used whenever ssh connections are needed, e.g. on installation of heartbeat scripts to the ${svar/@/HOST}.
 
-$FORWARD
+${bold}$FORWARD
 
   ${tpat}[${t0}${tvar}RHOST${t0}:${tpat}]${t0}${tvar}RPORT${t0}>${tpat}[${t0}${tvar}LHOST${t0}:${tpat}]${t0}${tvar}LPORT${t0}
     Remort Port Forwarding
 
   ${tpat}[${t0}${tvar}RHOST${t0}:${tpat}]${t0}${tvar}RPORT${t0}<${tpat}[${t0}${tvar}LHOST${t0}:${tpat}]${t0}${tvar}LPORT${t0}
     Local Port Forwarding
+
+${bold}Examples${t0}
+
+  [user@laguerre ~]\$ sshward ftp-a.rcnp '50322>20002'
+    create remote port forwarding ftp-a.rcnp:50322 to laguerre:20002.
+
+  [user@yogo ~]\$ sshward ftp-a.rcnp '50422>22'
+    create remote port forwarding ftp-a.rcnp:50422 to yogo:22.
 
 EOF
   exit 0
@@ -122,6 +125,7 @@ function read_arguments {
     (-H*)  read_arguments/option:H "${arg:2}" ;;
     (-Wf,*) IFS=, eval 'forward_options+=(${arg%-Ws,})' ;;
     (-Ws,*) IFS=, eval 'ssh_options+=(${arg%-Ws,})' ;;
+    (--server) fServer=1 ;;
     (--help) read_arguments/option:help ;;
     (--title=*)
       fTitle=1 oTitle=${arg#*=} ;;
@@ -166,19 +170,40 @@ function fileage {
   echo $((now-mtime))
 }
 
-(
-  function sshward/ssh {
-    LANG=C ssh "${ssh_options[@]}" "${forward_options[@]}" "$oHost" "\"$script\" $htime --from=$HOSTNAME"
-  }
+declare RemoteScript='$prefix/heartbeat.v0.sh'
+declare sshpid= fstdout=
 
-  function sshward/start-heartbeat {
-    local script='$prefix/heartbeat.v0.sh'
-    local ssh_out="$(sshward/ssh 2>&1; ret=$?; echo exit=$ret)"
-    local ret="$?"
-    if [[ $ssh_out =~ exit=127 || $ssh_out =~ "/heartbeat.v0.sh: Command not found" ]]; then
-      sshward/log "installing scripts to remote host ($script)."
-      # 向こうにスクリプトが存在しなかった時に、インストールする
-      ssh "${ssh_options[@]}" "$oHost" "mkdir -p \"${script%/*}\" && cat >> \"$script\" && chmod +x \"$script\"" <<'EOF' && sshward/ssh
+function sshward/ssh {
+  # - 標準出力の読み取り (fork せずに)。
+  # - SIGTERM を伝播させる為に '&' して sshpid を記録してから wait する。
+  local fstdout=$prefix/$$.ssh.stdout
+
+  LANG=C ssh "${ssh_options[@]}" "${forward_options[@]}" "$oHost" "\"$RemoteScript\" $htime --from=$HOSTNAME" > "$fstdout" 2>&1 & sshpid=$!
+  wait "$sshpid"
+  local ret="$?"
+
+  IFS= read -r -d '' stdout < "$fstdout"
+  rm -f "$fstdout"
+  sshpid= fstdout=
+  return "$ret"
+}
+
+function sshward/TRAPTERM {
+  [[ $sshpid ]] && kill "$sshpid"
+  [[ -f $fstdout ]] && rm -f "$fstdout"
+  sshpid= fstdout=
+  exit 143
+}
+
+function sshward/start-heartbeat {
+  local stdout
+  if
+    sshward/ssh
+    [[ $? -eq 127 || $stdout =~ "/heartbeat.v0.sh: Command not found" ]]
+  then
+    sshward/log "installing scripts to remote host ($RemoteScript)."
+    # 向こうにスクリプトが存在しなかった時に、インストールする
+    ssh "${ssh_options[@]}" "$oHost" "mkdir -p \"${RemoteScript%/*}\" && cat >> \"$RemoteScript\" && chmod +x \"$RemoteScript\"" <<'EOF' && sshward/ssh
 #!/bin/sh
 
 # kill other
@@ -193,16 +218,19 @@ while :; do
   sleep $htime
 done
 EOF
-      return
-    else
-      test "$ret" -ne 0 && echo "ret=$ret"
-      return "$ret"
-    fi
-  }
+    return
+  else
+    test "$ret" -ne 0 && echo "ret=$ret"
+    return "$ret"
+  fi
+}
 
-  function sshward/log {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >> "$prefix"/log/sshward.log
-  }
+function sshward/log {
+  echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >> "$prefix"/log/sshward.log
+}
+
+function sshward/loop {
+  trap -- sshward/TRAPTERM TERM INT QUIT
 
   nfail=0
   ftouch="$prefix"/tmp/sshward.$$.touch
@@ -215,7 +243,13 @@ EOF
     sshward/log "failed jizoku=$jizoku"
     ((nfail=jizoku<300?nfail+1:0))
 
-    sleep $((300+(nfail<30?nfail:30)*600))
+    sleep $((60*(3+(nfail<30?nfail:30)*10)))
   done &>/dev/null
-) &>/dev/null </dev/null &
-disown
+}
+
+if [[ $fServer ]]; then
+  sshward/loop &>/dev/null </dev/null
+else
+  # fork & disown
+  sshward/loop &>/dev/null </dev/null & disown
+fi
