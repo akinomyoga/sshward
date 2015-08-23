@@ -181,7 +181,7 @@ fi
 
 #------------------------------------------------------------------------------
 
-declare RemoteScript='$prefix/heartbeat.v0.sh'
+declare RemoteScript='$HOME/.mwg/share/sshward/heartbeat.v0.sh'
 declare sshpid= fstdout=
 
 function sshward/ssh {
