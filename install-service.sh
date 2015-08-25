@@ -31,15 +31,15 @@ chmod +x "$sshw"
 
 sed "
   s|%{name}|$name|g
-  s|%{sshw}|$HOME/.mwg/libexec/sshward-padparadscha|
+  s|%{sshw}|$sshw|
   s|%{user}|$USER|
   s|%{prefix}|$HOME/.mwg/share/sshward|
 " service.sh > "$sshw.service"
 chmod +x "$sshw.service"
 
 {
-  echo cp "$sshw.service" "/etc/init.d/$name"
-  echo chkconfig --add "$name"
-  echo chkconfig --level 2345 "$name" on
-  echo chkconfig --list "$name"
+  printf 'cp %q %q\n'                     "$sshw.service" "/etc/init.d/$name"
+  printf 'chkconfig --add %q\n'           "$name"
+  printf 'chkconfig --level 2345 %q on\n' "$name"
+  printf 'chkconfig --list %q\n'          "$name"
 } | sudo sh
