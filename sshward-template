@@ -1,0 +1,4 @@
+#!/bin/bash
+# -*- mode:sh; mode:sh-bash -*-
+
+source /path/to/sshward $* -i /path/to/identity-file host 'RemotePort>LocalPort'
