@@ -1,14 +1,18 @@
 #!/bin/bash
 
-name="$1"
+name=$1
+prog=${0##*/}
 
 if (($#==0)); then
-  echo "${0##*/}: a script file is not specified." >&2
-  echo "usage: ${0##*/} script file to start service."
+  echo "$prog: a script file is not specified." >&2
+  echo "usage: $prog <script file to start service>"
   exit 1
 elif [[ ! -f $1 ]]; then
-  echo "${0##*/}: the script file \`$1' is not found." >&2
+  echo "$prog: the script file \`$1' is not found." >&2
   exit 1
+elif ! type chkconfig &>/dev/null; then
+  echo "$prog: the command \`chkconfig' is not found." >&2
+  exit 2
 fi
 
 function mkd {
