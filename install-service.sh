@@ -10,7 +10,14 @@ if (($#==0)); then
 elif [[ ! -f $1 ]]; then
   echo "$prog: the script file \`$1' is not found." >&2
   exit 1
-elif ! type chkconfig &>/dev/null; then
+fi
+
+type=
+if type chkconfig &>/dev/null; then
+  type=chkconfig
+elif type systemctl &>/dev/null; then
+  type=systemctl
+else
   echo "$prog: the command \`chkconfig' is not found." >&2
   exit 2
 fi
@@ -41,9 +48,16 @@ sed "
 " service.sh > "$sshw.service"
 chmod +x "$sshw.service"
 
-{
-  printf 'cp %q %q\n'                     "$sshw.service" "/etc/init.d/$name"
-  printf 'chkconfig --add %q\n'           "$name"
-  printf 'chkconfig --level 2345 %q on\n' "$name"
-  printf 'chkconfig --list %q\n'          "$name"
-} | sudo sh
+if [[ $type == chkconfig ]]; then
+  {
+    printf 'set -e'
+    printf 'cp %q %q\n'                     "$sshw.service" "/etc/init.d/$name"
+    printf 'chkconfig --add %q\n'           "$name"
+    printf 'chkconfig --level 2345 %q on\n' "$name"
+    printf 'chkconfig --list %q\n'          "$name"
+  } | sudo sh
+elif [[ $type == systemd ]]; then
+  set -e
+  sudo cp "$sshw.service" "/etc/init.d/$name"
+  sudo systemctl enable "$name"
+fi
