@@ -88,9 +88,9 @@ ${bold}$OPTION
   -Ws,${svar/@/SSHOPTIONS}
   -Wf,${svar/@/SSHOPTIONS}
     These options can be used to specify SSH options directly. \
-The options with \`-Ws' will be used to create ssh connection. \
+The options with \`-Ws' will be used to create an ssh connection. \
 The options with \`-Wf' will be used to make port fowardings. \
-While the \`-Wf' options are used only on making port forwardings, \
+While the \`-Wf' options are used only in making port forwardings, \
 the \`-Ws' options are used whenever ssh connections are needed, e.g. on installation of heartbeat scripts to the ${svar/@/HOST}.
 
 ${bold}$FORWARD

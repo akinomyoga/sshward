@@ -1,0 +1,12 @@
+[Unit]
+Description=%{name}
+After=network.target
+
+[Service]
+User=%{user}
+ExecStart=%{sshw}.systemd.start
+Type=forking
+PidFile=%{prefix}/run/%{name}.pid
+
+[Install]
+WantedBy=multi-user.target

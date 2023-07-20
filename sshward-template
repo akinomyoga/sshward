@@ -1,4 +1,14 @@
 #!/bin/bash
 # -*- mode:sh; mode:sh-bash -*-
 
-source /path/to/sshward $* -i /path/to/identity-file host 'RemotePort>LocalPort'
+# Please edit this section
+sshward_bin=/path/to/sshward
+sshkey=/path/to/identity-file
+host=host        # <- hostname or an ssh_config entry name
+RemotePort=50022 # <- a port number on the remote host to accept the connection
+LocalPort=22     # <- the port number of the local SSH server
+
+# Do not edit the following line. It is used by the systemd-service setup.
+pidfile=
+
+"$sshward_bin" -i "$sshkey" ${pidfile:+--pidfile="$pidfile"} "$host" "$RemotePort>$LocalPort"
