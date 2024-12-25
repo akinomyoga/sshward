@@ -1,3 +1,9 @@
+# sshward
+
+## Prerequisites
+
+- [akinomyoga/mshex](https://github.com/akinomyoga/mshex)
+
 ## Install sshward connection as a service
 
 ```bash
