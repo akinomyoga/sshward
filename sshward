@@ -260,7 +260,7 @@ function sshward/loop {
     sshward/log "failed jizoku=$jizoku (nfail=$nfail)"
 
     local sleep_min=${_sshward_cooldown_time[nfail]:-((nfail<30?nfail:30)-${#_sshward_cooldown_time[@]}+1)*10}
-    sleep $((60*sleep_min)))
+    sleep "$((60*sleep_min))"
   done &>/dev/null
 }
 
